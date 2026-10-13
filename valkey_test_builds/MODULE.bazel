@@ -1,0 +1,153 @@
+module(name = "valkey_test_builds")
+
+# Must come before anything that pulls in rules_cc, so its Xcode toolchain is registered ahead of rules_cc's
+# autodetected one. That one picks up whatever ld64.lld is on PATH, and nix's LLD segfaults linking Mach-O.
+bazel_dep(name = "apple_support", version = "1.23.1")
+bazel_dep(name = "valkey_bazel")
+local_path_override(
+    module_name = "valkey_bazel",
+    path = "../valkey_bazel",
+)
+
+bazel_dep(name = "sysroots")
+local_path_override(
+    module_name = "sysroots",
+    path = "../sysroots",
+)
+
+sysroots = use_extension("@sysroots//:extension.bzl", "sysroots")
+sysroots.sysroot(
+    module_name = "sysroot_linux_arm64",
+    tarball = "@sysroots//:sysroot-linux-arm64.tar",
+)
+sysroots.sysroot(
+    module_name = "sysroot_linux_amd64",
+    tarball = "@sysroots//:sysroot-linux-amd64.tar",
+)
+use_repo(sysroots, "sysroot_linux_amd64", "sysroot_linux_arm64")
+
+bazel_dep(name = "tar.bzl", version = "0.10.9")
+bazel_dep(name = "toolchains_llvm", version = "1.9.1")
+
+llvm = use_extension("@toolchains_llvm//toolchain/extensions:llvm.bzl", "llvm")
+
+_LLVM_TOOLCHAINS = [
+    {
+        "name": "llvm_toolchain",
+        "exec_os": "",
+        "exec_arch": "",
+    },
+    {
+        "name": "llvm_toolchain_exec_aarch64",
+        "exec_os": "linux",
+        "exec_arch": "aarch64",
+    },
+    {
+        "name": "llvm_toolchain_exec_x86_64",
+        "exec_os": "linux",
+        "exec_arch": "x86_64",
+    },
+]
+
+_LLVM_SYSROOTS = [
+    {
+        "target": "linux-aarch64",
+        "label": "@sysroot_linux_arm64//:files",
+    },
+    {
+        "target": "linux-x86_64",
+        "label": "@sysroot_linux_amd64//:files",
+    },
+]
+
+_LLVM_VERSIONS = {
+    "linux-x86_64": "20.1.2",
+    "linux-aarch64": "20.1.2",
+}
+
+_LLVM_SHA256 = {
+    "linux-x86_64": "96506dbe7b7acfa8ee719c668e2af73623018e9312bf60062bffca8f5a7f6c5f",
+    "linux-aarch64": "c80099d630e9e0dee846202d35a5b965ffec7694eb1bf39d965db88dbab30178",
+}
+
+_LLVM_STDLIB = {
+    "linux-x86_64": "stdc++",
+    "linux-aarch64": "stdc++",
+}
+
+_llvm_sysroots = [
+    llvm.sysroot(
+        name = toolchain["name"],
+        label = sysroot["label"],
+        targets = [sysroot["target"]],
+    )
+    for toolchain in _LLVM_TOOLCHAINS
+    for sysroot in _LLVM_SYSROOTS
+]
+
+_llvm_toolchains = [
+    llvm.toolchain(
+        name = toolchain["name"],
+        exec_arch = toolchain["exec_arch"],
+        exec_os = toolchain["exec_os"],
+        llvm_versions = _LLVM_VERSIONS,
+        sha256 = _LLVM_SHA256,
+        stdlib = _LLVM_STDLIB,
+    )
+    for toolchain in _LLVM_TOOLCHAINS
+]
+
+use_repo(llvm, "llvm_toolchain", "llvm_toolchain_exec_aarch64", "llvm_toolchain_exec_x86_64")
+
+register_toolchains("@llvm_toolchain//:all")
+
+register_toolchains("@llvm_toolchain_exec_aarch64//:all")
+
+register_toolchains("@llvm_toolchain_exec_x86_64//:all")
+
+valkey = use_extension("@valkey_bazel//:extension.bzl", "valkey")
+valkey.add_version(version = "8.1.0")
+valkey.add_version(version = "8.1.1")
+valkey.add_version(version = "8.1.2")
+valkey.add_version(version = "8.1.3")
+valkey.add_version(version = "8.1.4")
+valkey.add_version(version = "8.1.5")
+valkey.add_version(version = "8.1.6")
+valkey.add_version(version = "8.1.7")
+valkey.add_version(version = "8.1.8")
+valkey.add_version(version = "8.1.9")
+valkey.add_version(version = "8.1.10")
+valkey.add_version(version = "9.0.0")
+valkey.add_version(version = "9.0.1")
+valkey.add_version(version = "9.0.2")
+valkey.add_version(version = "9.0.3")
+valkey.add_version(version = "9.0.4")
+valkey.add_version(version = "9.0.5")
+valkey.add_version(version = "9.0.6")
+valkey.add_version(version = "9.1.0")
+valkey.add_version(version = "9.1.1")
+valkey.add_version(version = "9.1.2")
+use_repo(
+    valkey,
+    "valkey_8_1_0",
+    "valkey_8_1_1",
+    "valkey_8_1_10",
+    "valkey_8_1_2",
+    "valkey_8_1_3",
+    "valkey_8_1_4",
+    "valkey_8_1_5",
+    "valkey_8_1_6",
+    "valkey_8_1_7",
+    "valkey_8_1_8",
+    "valkey_8_1_9",
+    "valkey_9_0_0",
+    "valkey_9_0_1",
+    "valkey_9_0_2",
+    "valkey_9_0_3",
+    "valkey_9_0_4",
+    "valkey_9_0_5",
+    "valkey_9_0_6",
+    "valkey_9_1_0",
+    "valkey_9_1_1",
+    "valkey_9_1_2",
+)

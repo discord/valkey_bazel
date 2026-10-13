@@ -1,0 +1,69 @@
+load("@bazel_skylib//rules:native_binary.bzl", "native_binary")
+load("@jemalloc//settings:config.bzl", "jemalloc")
+load("@rules_foreign_cc//foreign_cc:defs.bzl", "cmake")
+
+filegroup(
+    name = "all_srcs",
+    srcs = glob(
+        ["**"],
+        exclude = ["BUILD.bazel"],
+    ),
+)
+
+jemalloc(
+    name = "valkey_jemalloc",
+    cache_oblivious = "False",
+    cxx = "False",
+    jemalloc_prefix = "je_",
+    lg_quantum = 3,
+)
+
+cmake(
+    name = "valkey",
+    cache_entries = {
+        "BUILD_MALLOC": "jemalloc",
+        "CMAKE_BUILD_TYPE": "Release",
+        # Otherwise the build regenerates commands.def and fmtargs.h in place in the (read-only) source tree
+        "PYTHON_EXE": "OFF",
+    },
+    generate_args = ["-G Ninja"],
+    lib_source = ":all_srcs",
+    out_binaries = [
+        "valkey-benchmark",
+        "valkey-cli",
+        "valkey-server",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [":valkey_jemalloc"],
+)
+
+[
+    filegroup(
+        name = "_%s_file" % bin,
+        srcs = [":valkey"],
+        output_group = bin,
+    )
+    for bin in [
+        "valkey-benchmark",
+        "valkey-cli",
+        "valkey-server",
+    ]
+]
+
+# valkey-server picks sentinel / check-rdb / check-aof mode from the name it was invoked as
+[
+    native_binary(
+        name = name,
+        src = ":_%s_file" % src,
+        out = "bin/" + name,
+        visibility = ["//visibility:public"],
+    )
+    for name, src in {
+        "valkey-benchmark": "valkey-benchmark",
+        "valkey-check-aof": "valkey-server",
+        "valkey-check-rdb": "valkey-server",
+        "valkey-cli": "valkey-cli",
+        "valkey-sentinel": "valkey-server",
+        "valkey-server": "valkey-server",
+    }.items()
+]

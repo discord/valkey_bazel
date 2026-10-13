@@ -1,0 +1,4 @@
+exports_files(
+    ["BUILD.bazel.template"],
+    visibility = ["//visibility:public"],
+)

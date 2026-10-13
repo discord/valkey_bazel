@@ -1,0 +1,118 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,4 +1,8 @@
+ cmake_minimum_required(VERSION 3.10)
++
++# apple_support's cc toolchain puts a literal STRIP_DEBUG_SYMBOLS in its link flags for wrapped_clang, which rules_foreign_cc passes through
++# without the matching LINKED_BINARY= arg, so wrapped_clang ends up running `strip ""`
++set(CMAKE_USER_MAKE_RULES_OVERRIDE "${CMAKE_CURRENT_LIST_DIR}/cmake/BazelRulesOverride.cmake")
+ 
+ # Must be done first
+ if (APPLE)
+diff --git a/cmake/BazelRulesOverride.cmake b/cmake/BazelRulesOverride.cmake
+new file mode 100644
+--- /dev/null
++++ b/cmake/BazelRulesOverride.cmake
+@@ -0,0 +1,3 @@
++foreach (kind EXE SHARED MODULE)
++    string(REPLACE "STRIP_DEBUG_SYMBOLS" "" CMAKE_${kind}_LINKER_FLAGS_INIT "${CMAKE_${kind}_LINKER_FLAGS_INIT}")
++endforeach ()
+diff --git a/cmake/Modules/ValkeySetup.cmake b/cmake/Modules/ValkeySetup.cmake
+--- a/cmake/Modules/ValkeySetup.cmake
++++ b/cmake/Modules/ValkeySetup.cmake
+@@ -139,6 +139,8 @@
+         set(MALLOC_LIB "jemalloc")
+         set(ALLOCATOR_LIB "jemalloc")
+         add_valkey_server_compiler_options("-DUSE_JEMALLOC")
++        # BCR jemalloc is the same upstream 5.3.0 as deps/jemalloc, minus the header marker that gates active defrag
++        add_valkey_server_compiler_options("-DVALKEY_VENDORED_JEMALLOC=1")
+         set(USE_JEMALLOC 1)
+     elseif ("${BUILD_MALLOC}" STREQUAL "libc")
+         set(MALLOC_LIB "libc")
+@@ -287,7 +289,7 @@
+ 
+ # Update linker flags for the allocator
+ if (USE_JEMALLOC)
+-    include_directories("${CMAKE_SOURCE_DIR}/deps/jemalloc/include")
++    include_directories("${JEMALLOC_INCLUDE_DIR}")
+ endif ()
+ 
+ # Common compiler flags
+@@ -336,11 +338,9 @@
+     add_custom_target(generate_fmtargs_h)
+ endif ()
+ 
+-# Generate release.h file (always)
+-add_custom_target(
+-    release_header
+-    COMMAND sh -c '${CMAKE_SOURCE_DIR}/src/mkreleasehdr.sh'
+-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/src")
++# src/release.h is checked in by this patch; mkreleasehdr.sh always rewrites it in the sandbox, since outside a git repo
++# `git diff -- ../src ../deps` silently falls back to --no-index and diffs the two directories against each other
++add_custom_target(release_header)
+ 
+ # -------------------------------------------------
+ # Code Generation section - end
+@@ -352,7 +352,6 @@
+ include(SourceFiles)
+ 
+ # Clear the below variables from the cache
+-unset(CMAKE_C_FLAGS CACHE)
+ unset(VALKEY_SERVER_LDFLAGS CACHE)
+ unset(VALKEY_SERVER_CFLAGS CACHE)
+ unset(PYTHON_EXE CACHE)
+diff --git a/deps/jemalloc/CMakeLists.txt b/deps/jemalloc/CMakeLists.txt
+--- a/deps/jemalloc/CMakeLists.txt
++++ b/deps/jemalloc/CMakeLists.txt
+@@ -1,32 +1,12 @@
+ project(jemalloc)
+ 
+-# Build jemalloc using configure && make install
+-set(JEMALLOC_INSTALL_DIR ${CMAKE_BINARY_DIR}/jemalloc-build)
+-set(JEMALLOC_SRC_DIR ${CMAKE_CURRENT_LIST_DIR})
+-if (NOT EXISTS ${JEMALLOC_INSTALL_DIR}/lib/libjemalloc.a)
+-    message(STATUS "Building jemalloc (custom build)")
+-    message(STATUS "JEMALLOC_SRC_DIR = ${JEMALLOC_SRC_DIR}")
+-    message(STATUS "JEMALLOC_INSTALL_DIR = ${JEMALLOC_INSTALL_DIR}")
++set(_jemalloc_find_opts NO_CMAKE_ENVIRONMENT_PATH NO_SYSTEM_ENVIRONMENT_PATH NO_CMAKE_SYSTEM_PATH REQUIRED)
++find_path(JEMALLOC_INCLUDE_DIR jemalloc/jemalloc.h ${_jemalloc_find_opts})
++find_library(
++    JEMALLOC_LIBRARY
++    NAMES libjemalloc_core.a libjemalloc_core.pic.a libjemalloc.a libjemalloc.pic.a
++    ${_jemalloc_find_opts})
++message(STATUS "Using jemalloc: ${JEMALLOC_LIBRARY} (headers: ${JEMALLOC_INCLUDE_DIR})")
+ 
+-    execute_process(
+-        COMMAND sh -c "${JEMALLOC_SRC_DIR}/configure --disable-cxx \
+-            --with-version=5.3.0-0-g0 --with-lg-quantum=3 --disable-cache-oblivious --with-jemalloc-prefix=je_ \
+-            --enable-static --disable-shared --prefix=${JEMALLOC_INSTALL_DIR}"
+-        WORKING_DIRECTORY ${JEMALLOC_SRC_DIR} RESULTS_VARIABLE CONFIGURE_RESULT)
+-
+-    if (NOT ${CONFIGURE_RESULT} EQUAL 0)
+-        message(FATAL_ERROR "Jemalloc configure failed")
+-    endif ()
+-
+-    execute_process(COMMAND make -j${VALKEY_PROCESSOR_COUNT} lib/libjemalloc.a install
+-                    WORKING_DIRECTORY "${JEMALLOC_SRC_DIR}" RESULTS_VARIABLE MAKE_RESULT)
+-
+-    if (NOT ${MAKE_RESULT} EQUAL 0)
+-        message(FATAL_ERROR "Jemalloc build failed")
+-    endif ()
+-endif ()
+-
+-# Import the compiled library as a CMake target
+ add_library(jemalloc STATIC IMPORTED GLOBAL)
+-set_target_properties(jemalloc PROPERTIES IMPORTED_LOCATION "${JEMALLOC_INSTALL_DIR}/lib/libjemalloc.a"
+-                                          INCLUDE_DIRECTORIES "${JEMALLOC_INSTALL_DIR}/include")
++set_target_properties(jemalloc PROPERTIES IMPORTED_LOCATION "${JEMALLOC_LIBRARY}")
+diff --git a/src/release.h b/src/release.h
+new file mode 100644
+--- /dev/null
++++ b/src/release.h
+@@ -0,0 +1,5 @@
++#define REDIS_GIT_SHA1 "00000000"
++#define REDIS_GIT_DIRTY "0"
++#define REDIS_BUILD_ID "bazel"
++#include "version.h"
++#define REDIS_BUILD_ID_RAW SERVER_NAME VALKEY_VERSION REDIS_BUILD_ID REDIS_GIT_DIRTY REDIS_GIT_SHA1

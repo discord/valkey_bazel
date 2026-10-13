@@ -1,0 +1,4 @@
+*/bazel-*
+*.sw?
+MODULE.bazel.lock
+.bazelrc.user

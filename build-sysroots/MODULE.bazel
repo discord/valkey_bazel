@@ -1,0 +1,81 @@
+module(name = "build_sysroots")
+
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "rules_distroless", version = "0.9.4")
+
+apt = use_extension("@rules_distroless//apt:extensions.bzl", "apt")
+apt.install(
+    dependency_set = "jammy-sysroot",
+    packages = [
+        "base-files",
+        "gcc-12-base",
+        "libc++-16-dev",
+        "libc++abi-16-dev",
+        "libc-bin",
+        "libc6-dev",
+        "libclang-rt-16-dev",
+        "libgcc-12-dev",
+        "libgomp1",
+        "libstdc++-12-dev",
+        "libstdc++6",
+    ],
+    suites = [
+        "jammy",
+        "jammy-security",
+        "jammy-updates",
+        "llvm-toolchain-jammy-16",
+    ],
+)
+apt.sources_list(
+    architectures = [
+        "amd64",
+        "arm64",
+    ],
+    components = [
+        "universe",
+        "main",
+    ],
+    suites = [
+        "jammy",
+        "jammy-updates",
+    ],
+    types = ["deb"],
+    uris = [
+        "https://archive.ubuntu.com/ubuntu/",
+        "https://ports.ubuntu.com/",
+    ],
+)
+apt.sources_list(
+    architectures = [
+        "amd64",
+        "arm64",
+    ],
+    components = ["main"],
+    suites = [
+        "jammy-security",
+    ],
+    types = ["deb"],
+    uris = [
+        "https://security.ubuntu.com/ubuntu/",
+        "https://ports.ubuntu.com/",
+    ],
+)
+apt.sources_list(
+    architectures = [
+        "amd64",
+        "arm64",
+    ],
+    components = ["main"],
+    suites = [
+        "llvm-toolchain-jammy-16",
+    ],
+    types = ["deb"],
+    uris = [
+        "https://apt.llvm.org/jammy/",
+    ],
+)
+apt.lock(into = "locked")
+use_repo(
+    apt,
+    "jammy-sysroot",
+)
